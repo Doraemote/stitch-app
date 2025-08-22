@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stitch Density Measurement</title>
+  <style>
+    :root{--bg:#0b1220;--panel:#111a2b;--ink:#d7e3ff;--muted:#8fa3c7;--acc:#2ea0ff;--ok:#22c55e;--bad:#ef4444}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#06101f,#0e1a2e);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    h1,h2,h3{margin:0.3rem 0 0.5rem}
+    .app{display:grid;grid-template-columns:320px 1fr;gap:12px;height:100%;padding:12px;box-sizing:border-box}
+    .panel{background:var(--panel);border:1px solid #1e2a43;border-radius:16px;box-shadow:0 6px 30px rgba(0,0,0,.25)}
+    .left{padding:14px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+    .row{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center}
+    input,select,button,textarea{background:#0b1527;color:var(--ink);border:1px solid #20304f;border-radius:10px;padding:8px 10px}
+    input::placeholder{color:#6b85b6}
+    button{cursor:pointer}
+    button.primary{background:var(--acc);border-color:#2688d9;color:#001d36;font-weight:600}
+    button.ghost{background:transparent}
+    button.small{padding:6px 10px;border-radius:8px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .tag{display:inline-flex;gap:8px;align-items:center;background:#0b1527;border:1px solid #20304f;padding:6px 10px;border-radius:999px}
+    .muted{color:var(--muted)}
+    .bar{display:flex;gap:8px;flex-wrap:wrap}
+    .canvasWrap{position:relative;height:100%;}
+    .canvasTools{position:absolute;inset:12px 12px auto auto;display:flex;gap:6px}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px}
+    .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .kpi{background:#0b1527;border:1px solid #20304f;border-radius:14px;padding:10px;text-align:center}
+    .kpi h3{font-size:12px;color:var(--muted);font-weight:500}
+    .kpi div{font-size:18px;font-weight:700}
+    .footer{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+    .right{position:relative;overflow:hidden}
+    #stage{display:block;width:100%;height:100%;background:#000;border-radius:16px}
+    .hint{font-size:12px;color:#9bb1d8}
+    .chip{padding:4px 8px;background:#0b1527;border:1px solid #20304f;border-radius:999px}
+    .legend{position:absolute;left:12px;bottom:12px;background:rgba(9,14,25,.6);backdrop-filter:blur(4px);border:1px solid #20304f;border-radius:12px;padding:8px 10px}
+    .legend b{color:#fff}
+    .hr{height:1px;background:#1e2a43;margin:4px 0}
+    .danger{color:var(--bad)}
+    .ok{color:var(--ok)}
+    a.link{color:#7cc3ff;text-decoration:none}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- LEFT PANEL -->
+  <aside class="panel left">
+    <div>
+      <h2>Stitch Density Measurement</h2>
+      <div class="muted">นับจำนวนฝีเข็มจากภาพหรือกล้อง และคำนวณหน่วย mm./10Stitch และ Stitch/100mm</div>
+    </div>
+
+    <!-- Header fields -->
+    <div class="row"><label>Line</label><input id="line" placeholder="e.g. CS-2"/></div>
+    <div class="row"><label>Station No.</label><input id="station" placeholder="e.g. 04"/></div>
+    <div class="row"><label>Process Name</label><input id="process" placeholder="e.g. Sewing"/></div>
+    <div class="row"><label>Inspection Item</label><input id="item" placeholder="e.g. Cushion stitch density"/></div>
+    <div class="row"><label>Spec (Min)</label><input id="specMin" type="number" step="0.01" placeholder="Stitch/100mm"/></div>
+    <div class="row"><label>Spec (Max)</label><input id="specMax" type="number" step="0.01" placeholder="Stitch/100mm"/></div>
+
+    <!-- Source controls -->
+    <div class="hr"></div>
+    <div><b>แหล่งภาพ</b></div>
+    <div class="grid2">
+      <select id="cameraSelect"></select>
+      <div class="bar">
+        <button id="btnCam" class="small">Start Camera</button>
+        <button id="btnSnap" class="small">Capture Frame</button>
+      </div>
+    </div>
+    <div class="bar">
+      <input id="file" type="file" accept="image/*"/>
+      <button id="btnClearImg" class="small">Clear</button>
+    </div>
+    <div class="hint">หมายเหตุ iOS ต้องเปิดผ่าน https เพื่อใช้งานกล้อง</div>
+
+    <!-- Calibration -->
+    <div class="hr"></div>
+    <div><b>ตั้งสเกล (Calibration)</b></div>
+    <div class="bar">
+      <button id="modeCal" class="small">Draw Cal. Line</button>
+      <input id="calLen" type="number" step="0.01" style="width:120px" placeholder="Length (mm)"/>
+      <button id="applyCal" class="small primary">Set</button>
+      <span class="tag"><span>Scale:</span><b id="scaleLbl">—</b></span>
+    </div>
+
+    <!-- Measurement -->
+    <div class="hr"></div>
+    <div><b>วัดเส้นทางการเย็บ</b></div>
+    <div class="toolbar">
+      <select id="drawMode">
+        <option value="line">Line</option>
+        <option value="poly">Polyline / Curve</option>
+        <option value="free">Freehand</option>
+        <option value="circle">Circle Arc</option>
+        <option value="rect">Rectangle</option>
+      </select>
+      <button id="btnStartPath" class="small">Start Path</button>
+      <button id="btnEndPath" class="small">End Path</button>
+      <button id="btnUndo" class="small">Undo</button>
+      <button id="btnClear" class="small">Clear Path</button>
+    </div>
+    <div class="hint">คลิกเพิ่มจุดตามแนวฝีเข็ม / กด End เพื่อจบเส้นทาง</div>
+
+    <!-- Counting -->
+    <div class="hr"></div>
+    <div><b>นับฝีเข็ม</b></div>
+    <div class="toolbar">
+      <button id="btnCount" class="small">Manual Mark</button>
+      <button id="btnAuto" class="small">Auto Count (beta)</button>
+      <button id="btnClearMarks" class="small">Clear Marks</button>
+    </div>
+    <div class="hint">Manual: คลิกที่ยอดฝีเข็มทีละจุดบนเส้นทาง</div>
+
+    <!-- KPIs -->
+    <div class="kpis">
+      <div class="kpi"><h3>Total path (mm)</h3><div id="kLen">—</div></div>
+      <div class="kpi"><h3>mm / 10 Stitch</h3><div id="kMM10">—</div></div>
+      <div class="kpi"><h3>Stitch / 100 mm</h3><div id="kS100">—</div></div>
+    </div>
+
+    <!-- Save / Export -->
+    <div class="hr"></div>
+    <div class="toolbar">
+      <button id="btnSaveCSV" class="small">Export CSV</button>
+      <button id="btnSavePNG" class="small">Export Snapshot PNG</button>
+      <button id="btnReset" class="small ghost">Reset All</button>
+    </div>
+
+    <div class="footer">
+      <span class="hint">Space: toggle mark • Ctrl+Z: undo</span>
+      <span class="chip" id="status">Ready</span>
+    </div>
+  </aside>
+
+  <!-- RIGHT: STAGE -->
+  <section class="panel right">
+    <div class="canvasWrap" id="wrap">
+      <canvas id="stage"></canvas>
+      <div class="legend">Mode: <b id="legendMode">Idle</b> • Points: <b id="legendPts">0</b> • Marks: <b id="legendMarks">0</b></div>
+    </div>
+    <video id="vid" autoplay playsinline class="hidden"></video>
+  </section>
+</div>
+
+<script>
+(function(){
+  const d = (id)=>document.getElementById(id);
+  const stage = d('stage');
+  const wrap = d('wrap');
+  const ctx = stage.getContext('2d');
+  const video = d('vid');
+
+  let W=1280,H=720; resizeCanvas();
+  function resizeCanvas(){
+    const r = wrap.getBoundingClientRect();
+    W = r.width; H = r.height; stage.width=W; stage.height=H; draw();
+  }
+  new ResizeObserver(resizeCanvas).observe(wrap);
+
+  // State
+  let imgBitmap=null; // current image to display
+  let scale = null;   // mm per pixel
+  let mode = 'idle';  // 'idle'|'cal'|'draw'|'mark'
+  let path = [];      // [{x,y}]
+  let marks = [];     // stitch marks [{x,y}]
+  let drawing=false;
+  let drawType='line';
+  let calPts=[];      // two points for calibration
+
+  // UI bindings
+  d('drawMode').addEventListener('change',e=>{drawType=e.target.value; setLegend();});
+  d('btnStartPath').onclick=()=>{mode='draw';drawing=true;path=[];setLegend();};
+  d('btnEndPath').onclick=()=>{drawing=false;mode='idle';setLegend();recalc();};
+  d('btnUndo').onclick=()=>{ if(mode==='cal'&&calPts.length) calPts.pop(); else if(path.length) path.pop(); else if(marks.length) marks.pop(); draw(); recalc(); setLegend(); };
+  d('btnClear').onclick=()=>{ path=[]; draw(); recalc(); setLegend(); };
+  d('btnClearMarks').onclick=()=>{ marks=[]; draw(); recalc(); setLegend(); };
+  d('btnReset').onclick=()=>{ path=[]; marks=[]; calPts=[]; scale=null; d('scaleLbl').textContent='—'; draw(); recalc(); setLegend(); };
+  d('modeCal').onclick=()=>{ mode='cal'; calPts=[]; setLegend(); };
+  d('applyCal').onclick=()=>{ const mm=parseFloat(d('calLen').value); if(calPts.length===2 && mm>0){ const px=dist(calPts[0],calPts[1]); scale=mm/px; d('scaleLbl').textContent=(scale.toFixed(4)+' mm/px'); setStatus('Scale set'); mode='idle'; draw(); recalc(); setLegend(); } else setStatus('Need 2 points & length'); };
+  d('btnCount').onclick=()=>{ mode='mark'; setLegend(); };
+  d('btnAuto').onclick=autoCount;
+
+  // Camera & file
+  const camSel=d('cameraSelect');
+  async function listDevices(){
+    try{ const devs = await navigator.mediaDevices.enumerateDevices();
+      const vids = devs.filter(d=>d.kind==='videoinput');
+      camSel.innerHTML = vids.map(v=>`<option value="${v.deviceId}">${v.label||'Camera'}</option>`).join('');
+    }catch(e){ setStatus('Cannot list cameras'); }
+  }
+  listDevices();
+
+  d('btnCam').onclick = async ()=>{
+    try{
+      const id = camSel.value || undefined;
+      const stream = await navigator.mediaDevices.getUserMedia({video:id?{deviceId:{exact:id}}:true});
+      video.srcObject=stream; setStatus('Camera on');
+    }catch(e){ setStatus('Camera error: '+e.message); }
+  };
+  d('btnSnap').onclick = async ()=>{
+    if(!video.srcObject){ setStatus('Start camera first'); return; }
+    const off = document.createElement('canvas'); off.width=video.videoWidth; off.height=video.videoHeight;
+    off.getContext('2d').drawImage(video,0,0);
+    imgBitmap = await createImageBitmap(off);
+    draw();
+  };
+  d('file').onchange = async (e)=>{
+    const f=e.target.files[0]; if(!f) return;
+    const img=await createImageBitmap(await f.arrayBuffer().then(b=>new Blob([b])));
+    imgBitmap=img; draw();
+  };
+  d('btnClearImg').onclick=()=>{ imgBitmap=null; draw(); };
+
+  // Interaction on canvas
+  stage.addEventListener('mousedown', onDown);
+  stage.addEventListener('mousemove', onMove);
+  stage.addEventListener('mouseup', ()=>mouseDown=false);
+  stage.addEventListener('click', onClick);
+  let mouseDown=false;
+  let last={x:0,y:0};
+
+  function onDown(e){
+    const p=pos(e); mouseDown=true; last=p;
+    if(mode==='cal'){
+      if(calPts.length<2){ calPts.push(p); if(calPts.length===2) draw(); }
+    }else if(mode==='draw'){
+      if(drawType==='free') drawing=true; addPointForDraw(p);
+    }else if(mode==='mark'){
+      if(path.length===0){ setStatus('Create path first'); return; }
+      marks.push(projectToPath(p));
+      recalc(); draw();
+    }
+    setLegend();
+  }
+  function onMove(e){
+    const p=pos(e);
+    if(mode==='draw' && drawType==='free' && mouseDown){ addPointForDraw(p); draw(); }
+  }
+  function onClick(e){
+    if(mode==='draw' && drawType!=='free'){ addPointForDraw(pos(e)); draw(); }
+  }
+  function addPointForDraw(p){
+    if(drawType==='line' && path.length>=2) path=[];
+    if(drawType==='rect' && path.length>=4) path=[];
+    if(drawType==='circle' && path.length>=2) path=[];
+    path.push(p); recalc(); setLegend();
+  }
+
+  function pos(e){
+    const r=stage.getBoundingClientRect();
+    return {x:(e.clientX-r.left)*stage.width/r.width, y:(e.clientY-r.top)*stage.height/r.height};
+  }
+
+  // Geometry helpers
+  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+  function pathLength(){
+    if(drawType==='rect' && path.length===4){
+      const p=[...path, path[0]]; let s=0; for(let i=1;i<p.length;i++) s+=dist(p[i-1],p[i]); return s; }
+    if(drawType==='circle' && path.length===2){
+      const r=dist(path[0],path[1]); return 2*Math.PI*r; }
+    let s=0; for(let i=1;i<path.length;i++) s+=dist(path[i-1],path[i]); return s;
+  }
+  function projectToPath(p){ // simple nearest point among segments
+    if(path.length<2) return p;
+    let best=p,bd=1e9; let segs = (drawType==='rect'&&path.length===4)?[...path,path[0]]:path;
+    for(let i=1;i<segs.length;i++){
+      const a=segs[i-1], b=segs[i];
+      const ap={x:p.x-a.x,y:p.y-a.y};
+      const ab={x:b.x-a.x,y:b.y-a.y};
+      const t=Math.max(0,Math.min(1,(ap.x*ab.x+ap.y*ab.y)/(ab.x*ab.x+ab.y*ab.y)));
+      const q={x:a.x+t*ab.x,y:a.y+t*ab.y};
+      const dd=dist(p,q); if(dd<bd){bd=dd; best=q;}
+    }
+    return best;
+  }
+
+  // Auto count (very lightweight 1D peak finder)
+  function autoCount(){
+    if(!scale){ setStatus('Set calibration first'); return; }
+    if(path.length<2){ setStatus('Create path first'); return; }
+    // sample grayscale along path polyline
+    const samples=[]; const step=2; // px step
+    let pts=[];
+    // expand path to points
+    let P = (drawType==='rect'&&path.length===4)?[...path,path[0]]:path.slice();
+    if(drawType==='circle'&&path.length===2){
+      const c=path[0], r=dist(path[0],path[1]);
+      const n= Math.max(40, Math.round(2*Math.PI*r/step));
+      for(let i=0;i<n;i++){ const t=2*Math.PI*i/n; pts.push({x:c.x+r*Math.cos(t),y:c.y+r*Math.sin(t)}); }
+    }else{
+      for(let i=1;i<P.length;i++){
+        const a=P[i-1], b=P[i];
+        const L=dist(a,b); const n=Math.max(2,Math.floor(L/step));
+        for(let k=0;k<=n;k++){ const t=k/n; pts.push({x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}); }
+      }
+    }
+    const img = ctx.getImageData(0,0,stage.width,stage.height).data;
+    function grayAt(x,y){ x=Math.max(0,Math.min(W-1,Math.round(x))); y=Math.max(0,Math.min(H-1,Math.round(y)));
+      const i=(y*W+x)*4; return 0.2126*img[i]+0.7152*img[i+1]+0.0722*img[i+2]; }
+    for(const p of pts) samples.push(grayAt(p.x,p.y));
+    // smooth & find peaks
+    const smooth=(arr,w=5)=>arr.map((_,i)=>{let s=0,c=0; for(let k=-w;k<=w;k++){const j=i+k; if(j>=0&&j<arr.length){s+=arr[j];c++;}} return s/c;});
+    const s1=smooth(samples,5);
+    // peaks when going dark->light transitions over threshold
+    const thr = stddev(s1)*0.6; // adaptive
+    let last=s1[0]; let rising=false; let localMin=last; marks=[];
+    for(let i=1;i<s1.length;i++){
+      const v=s1[i];
+      if(v<last) rising=false; else if(v>last) rising=true;
+      if(!rising) localMin=Math.min(localMin,v);
+      if(rising && (v-last)>thr){ // start of bright ridge
+        marks.push(pts[i]); rising=false; localMin=v; i+=6; // skip a few to avoid double-detect
+      }
+      last=v;
+    }
+    draw(); recalc(); setLegend(); setStatus('Auto counted: '+marks.length+' peaks');
+  }
+  function stddev(a){ const m=a.reduce((s,v)=>s+v,0)/a.length; const v=a.reduce((s,x)=>s+(x-m)*(x-m),0)/a.length; return Math.sqrt(v); }
+
+  // Drawing
+  function draw(){
+    // backdrop
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+    if(imgBitmap){
+      // fit contain
+      const ratio=Math.min(W/imgBitmap.width, H/imgBitmap.height);
+      const w=imgBitmap.width*ratio, h=imgBitmap.height*ratio; const x=(W-w)/2, y=(H-h)/2;
+      ctx.drawImage(imgBitmap,x,y,w,h);
+    } else {
+      // grid background
+      ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+      for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+      for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    }
+
+    // calibration line
+    if(calPts.length){ ctx.strokeStyle='#7cc3ff'; ctx.lineWidth=2; ctx.setLineDash([6,6]); ctx.beginPath(); ctx.moveTo(calPts[0].x,calPts[0].y); if(calPts[1]) ctx.lineTo(calPts[1].x,calPts[1].y); else ctx.lineTo(last.x,last.y); ctx.stroke(); ctx.setLineDash([]); }
+
+    // path
+    if(path.length){
+      ctx.strokeStyle='#2ea0ff'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(path[0].x,path[0].y);
+      if(drawType==='rect' && path.length===4){ const p=[...path,path[0]]; for(let i=1;i<p.length;i++) ctx.lineTo(p[i].x,p[i].y); }
+      else if(drawType==='circle' && path.length>=2){ const r=dist(path[0],path[1]); ctx.arc(path[0].x,path[0].y,r,0,Math.PI*2); }
+      else { for(let i=1;i<path.length;i++) ctx.lineTo(path[i].x,path[i].y); }
+      ctx.stroke();
+      // points
+      for(const p of path){ dot(p.x,p.y,'#8fd0ff'); }
+    }
+
+    // marks
+    for(const m of marks){ dot(m.x,m.y,'#fff'); ring(m.x,m.y,'#00ffa6'); }
+  }
+  function dot(x,y,c){ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill(); }
+  function ring(x,y,c){ ctx.strokeStyle=c; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2); ctx.stroke(); }
+
+  // Metrics
+  function recalc(){
+    const pxLen = pathLength();
+    const mmLen = scale? pxLen*scale : null;
+    const S = marks.length;
+    d('kLen').textContent = mmLen? mmLen.toFixed(2): '—';
+    d('kMM10').textContent = (mmLen&&S>0)? ((mmLen/S)*10).toFixed(2): '—';
+    d('kS100').textContent = (mmLen&&mmLen>0)? ((S/mmLen)*100).toFixed(2): '—';
+    // spec coloring
+    const s100 = (mmLen&&mmLen>0)? (S/mmLen)*100 : null;
+    const min=parseFloat(d('specMin').value), max=parseFloat(d('specMax').value);
+    const kS=d('kS100'); kS.classList.remove('ok','danger');
+    if(s100!=null && !isNaN(min) && !isNaN(max)){
+      if(s100>=min && s100<=max) kS.classList.add('ok'); else kS.classList.add('danger');
+    }
+  }
+
+  // Export CSV & PNG
+  d('btnSaveCSV').onclick=()=>{
+    const row={
+      datetime:new Date().toISOString(),
+      line:d('line').value, station:d('station').value, process:d('process').value, item:d('item').value,
+      specMin:d('specMin').value, specMax:d('specMax').value,
+      scale_mm_per_px: scale||'', path_px: pathLength().toFixed(2), path_mm: d('kLen').textContent,
+      marks: marks.length, mm_per_10: d('kMM10').textContent, stitch_per_100mm: d('kS100').textContent
+    };
+    const headers=Object.keys(row);
+    const csv=headers.join(',')+'\n'+headers.map(k=>row[k]).join(',');
+    download('stitch_density_'+ts()+'.csv', csv);
+  };
+  d('btnSavePNG').onclick=()=>{
+    // render a copy with overlay text
+    const off=document.createElement('canvas'); off.width=W; off.height=H; const cx=off.getContext('2d');
+    cx.drawImage(stage,0,0);
+    cx.fillStyle='rgba(0,0,0,.55)'; cx.fillRect(0,H-90,W,90);
+    cx.fillStyle='#fff'; cx.font='16px Segoe UI, system-ui';
+    const t=`S/100mm: ${d('kS100').textContent} | mm/10: ${d('kMM10').textContent} | Path(mm): ${d('kLen').textContent} | Marks: ${marks.length}`;
+    cx.fillText(t,14,H-20);
+    download('stitch_snapshot_'+ts()+'.png', off.toDataURL('image/png'));
+  };
+  function download(name, data){
+    const a=document.createElement('a'); a.download=name;
+    if(data.startsWith('data:')) a.href=data; else a.href='data:text/plain;charset=utf-8,'+encodeURIComponent(data);
+    a.click();
+  }
+  function ts(){ const d=new Date(); return d.toISOString().replace(/[:.]/g,'-'); }
+
+  // Legend & status
+  function setLegend(){
+    let m='Idle'; if(mode==='cal') m='Calibration'; else if(mode==='draw') m='Draw'; else if(mode==='mark') m='Mark';
+    d('legendMode').textContent=m; d('legendPts').textContent=path.length; d('legendMarks').textContent=marks.length;
+  }
+  function setStatus(t){ d('status').textContent=t; setTimeout(()=>d('status').textContent='Ready',2500); }
+
+  // keyboard shortcuts
+  document.addEventListener('keydown',e=>{
+    if(e.code==='Space'){ e.preventDefault(); if(mode!=='mark'){ mode='mark'; setLegend(); } else { marks.pop(); draw(); recalc(); setLegend(); } }
+    if((e.ctrlKey||e.metaKey) && e.key==='z'){ e.preventDefault(); d('btnUndo').click(); }
+  });
+
+  // initial draw
+  draw(); setLegend();
+})();
+</script>
+</body>
+</html>
